@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Single-Register Message Recovery in SHA-256</title>
+<meta name="description" content="Single-register message recovery in SHA-256 and a message-locked encryption scheme built from its compression function.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400;1,7..72,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<style>
+:root {
+  --paper: #F2F4F7;
+  --surface: #FFFFFF;
+  --ink: #18202D;
+  --muted: #586174;
+  --rule: #D3D9E2;
+  --afam: #2350C0;
+  --afam-soft: #E4EAFA;
+  --efam: #8A5300;
+  --efam-line: #C7861E;
+  --efam-soft: #F8EDD8;
+  --on-accent: #FFFFFF;
+  --serif: "Literata", Georgia, serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #131923;
+    --surface: #1B2330;
+    --ink: #E3E7EE;
+    --muted: #9AA4B5;
+    --rule: #2D3746;
+    --afam: #93B1F7;
+    --afam-soft: #1E2B48;
+    --efam: #E4B062;
+    --efam-line: #C7861E;
+    --efam-soft: #362915;
+    --on-accent: #131923;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #131923; --surface: #1B2330; --ink: #E3E7EE; --muted: #9AA4B5; --rule: #2D3746;
+  --afam: #93B1F7; --afam-soft: #1E2B48; --efam: #E4B062; --efam-line: #C7861E; --efam-soft: #362915; --on-accent: #131923;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 1.0625rem;
+  line-height: 1.7;
+  font-optical-sizing: auto;
+}
+a { color: var(--afam); text-underline-offset: 0.18em; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--afam); outline-offset: 3px; border-radius: 2px; }
+code { font-family: var(--mono); font-size: 0.86em; background: var(--surface); border: 1px solid var(--rule); border-radius: 3px; padding: 0.05em 0.3em; }
+.katex { font-size: 1.05em; }
+.katex-display { overflow-x: auto; overflow-y: hidden; padding: 6px 0; margin: 1.1em 0; }
+
+/* ---------- title block ---------- */
+.paper-head { max-width: 1180px; margin: 0 auto; padding: 56px 16px 0; }
+.paper-head-inner { max-width: 74ch; }
+.kind { margin: 0 0 18px; color: var(--muted); font-size: 0.95rem; }
+h1 {
+  font-size: clamp(1.85rem, 4vw, 2.75rem);
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+.author { margin: 22px 0 0; font-size: 1.05rem; }
+.author .src { display: block; color: var(--muted); font-size: 0.95rem; }
+.abstract {
+  margin: 34px 0 0;
+  padding: 22px 0 6px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.abstract h2 { font-size: 1.05rem; font-weight: 600; margin: 0 0 8px; }
+.abstract p { margin: 0 0 1em; font-size: 1rem; line-height: 1.65; }
+.keywords { color: var(--muted); }
+
+/* ---------- layout ---------- */
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 40px 16px 80px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.toc { display: none; }
+article { max-width: 74ch; min-width: 0; }
+@media (min-width: 1100px) {
+  .page { grid-template-columns: minmax(0, 1fr) 220px; gap: 64px; }
+  .toc { display: block; order: 2; }
+  .toc nav { position: sticky; top: 32px; font-size: 0.9rem; line-height: 1.45; }
+  .toc ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 9px; }
+  .toc a { color: var(--muted); text-decoration: none; }
+  .toc a:hover { color: var(--ink); }
+  .toc .label { color: var(--ink); font-weight: 600; margin: 0 0 12px; }
+}
+article h2 {
+  font-size: 1.5rem;
+  line-height: 1.25;
+  font-weight: 600;
+  margin: 2.4em 0 0.6em;
+  scroll-margin-top: 24px;
+}
+article h2:first-child { margin-top: 0; }
+article h2 .n { margin-right: 0.55em; }
+article h3 { font-size: 1.12rem; line-height: 1.35; font-weight: 600; margin: 1.8em 0 0.4em; }
+article h3 .n { margin-right: 0.5em; }
+article p, article ul, article ol { margin: 0 0 1em; }
+article li { margin-bottom: 0.35em; }
+.prop { margin: 1.2em 0; }
+.prop .head { font-weight: 600; font-style: normal; }
+.prop .body { font-style: italic; }
+.proof .head { font-style: italic; }
+.qed { float: right; }
+.table-wrap { overflow-x: auto; margin: 1.4em 0; }
+.table-wrap .cap { font-size: 0.95rem; margin: 0 0 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.98rem; }
+th, td { text-align: left; padding: 7px 14px; border-bottom: 1px solid var(--rule); }
+thead th { border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); font-weight: 600; }
+tbody tr:last-child td { border-bottom: 1px solid var(--ink); }
+tr.a td:first-child { box-shadow: inset 3px 0 0 var(--afam); }
+tr.e td:first-child { box-shadow: inset 3px 0 0 var(--efam-line); }
+.cap b { font-weight: 600; }
+pre.cmd {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 14px 18px;
+  overflow-x: auto;
+  margin: 0 0 1.2em;
+}
+.refs { list-style: none; padding: 0; counter-reset: ref; }
+.refs li { counter-increment: ref; position: relative; padding-left: 2.6em; font-size: 0.97rem; margin-bottom: 0.6em; }
+.refs li::before { content: "[" counter(ref) "]"; position: absolute; left: 0; color: var(--muted); }
+footer { border-top: 1px solid var(--rule); max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; font-size: 0.93rem; color: var(--muted); }
+
+/* ---------- figures ---------- */
+figure { margin: 1.8em 0; }
+figcaption { font-size: 0.95rem; color: var(--muted); margin-top: 12px; line-height: 1.55; }
+figcaption b { color: var(--ink); font-weight: 600; }
+.machine { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 20px; }
+.machine-top { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: end; justify-content: space-between; }
+.msg-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; flex: 1 1 380px; }
+.msg-form label { display: block; font-size: 0.88rem; color: var(--muted); margin-bottom: 6px; }
+.field { flex: 1 1 220px; }
+.msg-form input {
+  width: 100%;
+  font: 500 0.95rem var(--mono);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 9px 12px;
+}
+button {
+  font: 600 0.92rem var(--serif);
+  color: var(--on-accent);
+  background: var(--afam);
+  border: 0;
+  border-radius: 4px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
+button.secondary { background: transparent; color: var(--afam); border: 1px solid var(--afam); }
+button:disabled { opacity: 0.45; cursor: default; }
+.round { font: 500 0.88rem var(--mono); color: var(--muted); white-space: nowrap; }
+.round output { color: var(--ink); }
+.error { color: var(--efam); font-size: 0.92rem; margin: 8px 0 0; }
+.error:empty { display: none; }
+.regs { display: grid; gap: 8px; margin: 8px 0 0; }
+.fam { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.reg { border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px 10px; background: var(--paper); min-width: 0; }
+.reg .name { font: italic 600 1.15rem var(--serif); display: block; line-height: 1.1; }
+.reg .val { font: 500 clamp(0.74rem, 2vw, 0.95rem) var(--mono); display: block; margin-top: 5px; }
+.reg .role { display: block; font-size: 0.75rem; color: var(--muted); margin-top: 3px; line-height: 1.3; }
+.fam-a .reg { border-top: 3px solid var(--afam); }
+.fam-e .reg { border-top: 3px solid var(--efam-line); }
+.fam-a .reg.new { background: var(--afam-soft); }
+.fam-e .reg.new { background: var(--efam-soft); }
+.fam-a .name { color: var(--afam); }
+.fam-e .name { color: var(--efam); }
+.reg.leak { box-shadow: inset 0 0 0 2px var(--efam-line); }
+.trace-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; margin: 20px 0 8px; font-size: 0.9rem; color: var(--muted); }
+.trace { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; font: 400 0.74rem var(--mono); }
+.trace span { border: 1px solid var(--rule); border-radius: 3px; padding: 2px 0; text-align: center; color: var(--muted); min-height: 1.85em; overflow: hidden; }
+.trace span.on { color: var(--ink); border-color: var(--efam-line); background: var(--efam-soft); }
+.trace span.use { outline: 2px solid var(--afam); outline-offset: 1px; color: var(--ink); }
+.digest { font: 500 0.86rem var(--mono); overflow-wrap: anywhere; margin: 16px 0 0; padding: 2px 0; }
+.digest b { font-family: var(--serif); font-weight: 600; }
+.digest.use { outline: 2px solid var(--afam); outline-offset: 4px; border-radius: 2px; }
+.regs-mode { margin: 18px 0 0; font-size: 0.9rem; color: var(--muted); }
+.stage { margin: 24px 0 0; padding: 18px 0 0; border-top: 1px solid var(--rule); }
+.stage-head { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.stage-title { font-weight: 600; font-size: 0.98rem; }
+.derive {
+  font: 400 0.8rem/1.65 var(--mono);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin: 14px 0 0;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  min-height: calc(5 * 1.65em + 22px);
+}
+.wgrid { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; font: 400 0.74rem var(--mono); }
+.wgrid span { border: 1px solid var(--rule); border-radius: 3px; padding: 2px 0; text-align: center; color: var(--muted); min-height: 1.85em; overflow: hidden; }
+.wgrid span.msg { border-color: var(--ink); }
+.wgrid span.on { color: var(--ink); }
+.wgrid span.ok { background: var(--afam-soft); border-color: var(--afam); }
+.wgrid span.bad { background: var(--efam-soft); border-color: var(--efam); }
+.bytes { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; font: 500 0.8rem var(--mono); }
+.bytes .grp { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--rule); border-radius: 3px; padding: 2px; text-align: center; }
+.bytes .grp span { color: var(--muted); }
+.bytes .grp.on { border-color: var(--ink); }
+.bytes .grp.on span { color: var(--ink); }
+.bytes .grp.on span.pad { color: var(--muted); }
+.recovered { margin: 14px 0 0; font-size: 0.97rem; }
+.recovered:empty { display: none; }
+.recovered code { background: var(--afam-soft); border-color: transparent; }
+
+.diagram svg { width: 100%; height: auto; display: block; }
+.d-box { fill: var(--surface); stroke: var(--rule); stroke-width: 1.5; }
+.d-box.key { stroke: var(--afam); }
+.d-box.data { stroke: var(--efam-line); }
+.d-line { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.d-line.key { stroke: var(--afam); }
+.d-line.data { stroke: var(--efam-line); }
+.d-t { fill: var(--ink); font: 600 15px var(--serif); }
+.d-s { fill: var(--muted); font: 400 12px var(--serif); }
+.d-m { fill: var(--ink); font: 500 13px var(--mono); }
+.d-arrow { fill: var(--muted); }
+.d-arrow.key { fill: var(--afam); }
+.d-arrow.data { fill: var(--efam-line); }
+
+@media (max-width: 640px) {
+  .paper-head { padding-top: 36px; }
+  .machine { padding: 14px; }
+  .fam { gap: 5px; }
+  .reg { padding: 7px 7px 9px; }
+  .reg .role { display: none; }
+  .trace, .wgrid, .bytes { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  article h2 { font-size: 1.32rem; }
+}
+</style>
+</head>
+<body>
+
+<header class="paper-head">
+  <div class="paper-head-inner">
+    <p class="kind">Technical note, October 2026</p>
+    <h1>Single-Register Message Recovery in SHA-256 and a Message-Locked Encryption Scheme Built from Its Compression Function</h1>
+    <p class="author">ErtungaYusuf
+      <span class="src">Source code and tests: <a href="https://github.com/ErtungaYusuf/sha256-trace-cipher">github.com/ErtungaYusuf/sha256-trace-cipher</a></span>
+    </p>
+
+    <section class="abstract" aria-labelledby="abstract-title">
+      <h2 id="abstract-title">Abstract</h2>
+      <p>We study the evolution of the internal state of the SHA-256 compression function and show that the per-round values of any single one of the eight working variables \(a, \dots, h\), together with the final digest, uniquely determine the input message. The result follows from the fact that each round computes only two new words, \(a\) and \(e\), while the remaining six are delayed copies; consequently, each message schedule word \(W_t\) can be recovered from one register by modular subtraction. We provide a reference implementation and verify recovery for all eight registers on messages of 0 to 1000 bytes. We then show that such a round trace does not constitute a ciphertext, since the digest enters only the final three rounds and the message words are recoverable without it. Finally, we describe two constructions that use no cryptographic primitive other than SHA-256: SHACAL-2 in an authenticated CBC mode, and a message-locked encryption scheme in which the key is the SHA-256 digest of the message and the ciphertext is the round trace masked by the compression function keyed through its chaining input. We discuss the underlying assumptions and the inherent limitations of message-locked encryption. The implementation is intended for study and has not been independently audited.</p>
+      <p class="keywords"><em>Keywords:</em> SHA-256, compression function, state recovery, side-channel analysis, SHACAL-2, message-locked encryption, convergent encryption.</p>
+    </section>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc">
+    <nav aria-label="Contents">
+      <p class="label">Contents</p>
+      <ol>
+        <li><a href="#introduction">1 Introduction</a></li>
+        <li><a href="#preliminaries">2 Preliminaries</a></li>
+        <li><a href="#recovery">3 Message recovery from a single register</a></li>
+        <li><a href="#not-ciphertext">4 The round trace is not a ciphertext</a></li>
+        <li><a href="#shacal2">5 SHACAL-2</a></li>
+        <li><a href="#mle">6 Message-locked encryption with the digest as key</a></li>
+        <li><a href="#conclusion">7 Conclusion</a></li>
+        <li><a href="#references">References</a></li>
+        <li><a href="#appendix">Appendix A: Reproducing the results</a></li>
+      </ol>
+    </nav>
+  </aside>
+
+  <article>
+    <h2 id="introduction"><span class="n">1</span>Introduction</h2>
+    <p>SHA-256 [<a href="#ref-1">1</a>] is commonly treated as an opaque function: an input of arbitrary length is mapped to a 256-bit digest, and no efficient inversion is known. Its internal structure, however, is highly regular. The compression function maintains eight 32-bit working variables, conventionally denoted \(a\) through \(h\), and updates them over 64 rounds. This note examines what can be inferred when one of these variables is observed at every round, and whether such an observation can be turned into a meaningful encryption scheme.</p>
+    <p>The contributions are as follows.</p>
+    <ul>
+      <li>We show that the per-round values of any single working variable, together with the final digest, uniquely determine the message, and we give an explicit recovery procedure for all eight variables, including multi-block messages (Section 3).</li>
+      <li>We show that this round trace cannot serve as a ciphertext with the digest as key, because the message words are recoverable without the digest (Section 4).</li>
+      <li>We describe SHACAL-2, the block cipher obtained from the compression function by removing the feed-forward, and use it in an authenticated mode built solely from SHA-256 components (Section 5).</li>
+      <li>We construct a message-locked encryption scheme in which the key is the SHA-256 digest of the message and the ciphertext is the round trace masked by the compression function keyed through its chaining input, and we discuss its security assumptions and inherent limitations (Section 6).</li>
+    </ul>
+    <p>All constructions are implemented from scratch in Python without third-party cryptographic libraries. The standard modules <code>hashlib</code> and <code>hmac</code> are used only in the test suite, to validate the implementation.</p>
+
+    <h2 id="preliminaries"><span class="n">2</span>Preliminaries</h2>
+    <h3><span class="n">2.1</span>Notation</h3>
+    <p>All words are 32 bits wide. Unless stated otherwise, \(+\) and \(-\) denote addition and subtraction modulo \(2^{32}\). The functions \(\Sigma_0, \Sigma_1, \sigma_0, \sigma_1, \mathrm{Ch}\) and \(\mathrm{Maj}\) and the round constants \(K_t\) are as defined in FIPS 180-4 [<a href="#ref-1">1</a>]. We write \(S_t = (a_t, b_t, \dots, h_t)\) for the state after \(t\) rounds of the compression function, so that \(S_0\) is the chaining input.</p>
+    <h3><span class="n">2.2</span>SHA-256</h3>
+    <p>The message is padded with a single one bit, zero bits, and a 64-bit length field, and divided into 512-bit blocks \(M^{(1)}, \dots, M^{(N)}\). Each block is split into sixteen words \(W_0, \dots, W_{15}\) and expanded by the message schedule</p>
+    $$W_t = \sigma_1(W_{t-2}) + W_{t-7} + \sigma_0(W_{t-15}) + W_{t-16}, \qquad 16 \le t \le 63. \tag{1}$$
+    <p>The compression function sets \(S_0 = H^{(i-1)}\), where \(H^{(0)}\) is the standard initial value (IV), and for \(t = 0, \dots, 63\) computes</p>
+    $$\begin{aligned} T_1 &amp;= h_t + \Sigma_1(e_t) + \mathrm{Ch}(e_t, f_t, g_t) + K_t + W_t, \\ T_2 &amp;= \Sigma_0(a_t) + \mathrm{Maj}(a_t, b_t, c_t), \end{aligned} \tag{2}$$
+    $$S_{t+1} = \bigl(T_1 + T_2,\; a_t,\; b_t,\; c_t,\; d_t + T_1,\; e_t,\; f_t,\; g_t\bigr). \tag{3}$$
+    <p>After 64 rounds, the feed-forward yields the next chaining value, added word by word:</p>
+    $$H^{(i)} = H^{(i-1)} + S_{64}. \tag{4}$$
+    <p>The digest is \(H^{(N)}\).</p>
+
+    <h2 id="recovery"><span class="n">3</span>Message recovery from a single register</h2>
+    <h3><span class="n">3.1</span>Structure of the state update</h3>
+    <p>Equation (3) computes only two new words per round, \(a_{t+1}\) and \(e_{t+1}\); the remaining six are shifted copies. By induction,</p>
+    $$\begin{aligned} b_t &amp;= a_{t-1}, &amp; c_t &amp;= a_{t-2}, &amp; d_t &amp;= a_{t-3}, \\ f_t &amp;= e_{t-1}, &amp; g_t &amp;= e_{t-2}, &amp; h_t &amp;= e_{t-3}. \end{aligned} \tag{5}$$
+    <p>The state is therefore fully described by the two sequences \((a_t)\) and \((e_t)\), a representation that is standard in the cryptanalysis of SHA-2 [<a href="#ref-5">5</a>]. Table 1 lists the delay \(\delta\) of each working variable relative to its source sequence.</p>
+    <div class="table-wrap">
+      <p class="cap"><b>Table 1.</b> Each working variable expressed as a delayed copy of \(a\) or \(e\).</p>
+      <table>
+        <thead><tr><th>Variable</th><th>Equals</th><th>Delay \(\delta\)</th></tr></thead>
+        <tbody>
+          <tr class="a"><td>\(a_t\)</td><td>\(a_t\)</td><td>0</td></tr>
+          <tr class="a"><td>\(b_t\)</td><td>\(a_{t-1}\)</td><td>1</td></tr>
+          <tr class="a"><td>\(c_t\)</td><td>\(a_{t-2}\)</td><td>2</td></tr>
+          <tr class="a"><td>\(d_t\)</td><td>\(a_{t-3}\)</td><td>3</td></tr>
+          <tr class="e"><td>\(e_t\)</td><td>\(e_t\)</td><td>0</td></tr>
+          <tr class="e"><td>\(f_t\)</td><td>\(e_{t-1}\)</td><td>1</td></tr>
+          <tr class="e"><td>\(g_t\)</td><td>\(e_{t-2}\)</td><td>2</td></tr>
+          <tr class="e"><td>\(h_t\)</td><td>\(e_{t-3}\)</td><td>3</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3><span class="n">3.2</span>Recovering the message schedule</h3>
+    <div class="prop">
+      <p><span class="head">Proposition 1.</span> <span class="body">Suppose that the state \(S_t\) is known. Then \(W_t\) is uniquely determined by \(a_{t+1}\), and equally by \(e_{t+1}\).</span></p>
+    </div>
+    <div class="proof">
+      <p><span class="head">Proof.</span> By (2) and (3), \(a_{t+1} = T_1 + T_2\) and \(e_{t+1} = d_t + T_1\), where \(T_2\) depends only on \(S_t\). Hence \(T_1\) is obtained from either value:</p>
+      $$T_1 = a_{t+1} - \Sigma_0(a_t) - \mathrm{Maj}(a_t, b_t, c_t) \quad\text{or}\quad T_1 = e_{t+1} - d_t. \tag{6}$$
+      <p>Every term of \(T_1\) other than \(W_t\) depends only on \(S_t\), so</p>
+      $$W_t = T_1 - h_t - \Sigma_1(e_t) - \mathrm{Ch}(e_t, f_t, g_t) - K_t. \tag{7}$$
+      <p>Since addition modulo \(2^{32}\) is a group operation, the solution is unique. <span class="qed">∎</span></p>
+    </div>
+    <p>Starting from the known \(S_0\), Proposition 1 is applied round by round: once \(W_t\) is determined, \(S_{t+1}\) follows from (3), and the argument proceeds to round \(t+1\). The first sixteen recovered words \(W_0, \dots, W_{15}\) constitute the message block. The remaining words \(W_{16}, \dots, W_{63}\) must satisfy (1), which provides a consistency check at no additional cost.</p>
+
+    <h3><span class="n">3.3</span>Delayed registers and the role of the digest</h3>
+    <p>If the observed variable has delay \(\delta = 0\) (that is, \(a\) or \(e\)), the procedure requires no further information. For \(\delta \in \{1, 2, 3\}\), observing the variable at rounds \(1, \dots, 64\) yields the source sequence only up to index \(64 - \delta\), and the final \(\delta\) values are missing. They follow from the feed-forward (4): since \(S_{64} = (a_{64}, a_{63}, a_{62}, a_{61}, e_{64}, e_{63}, e_{62}, e_{61})\),</p>
+    $$a_{64-m} = H^{(i)}_{m} - H^{(i-1)}_{m}, \qquad e_{64-m} = H^{(i)}_{4+m} - H^{(i-1)}_{4+m}, \qquad 0 \le m \lt \delta. \tag{8}$$
+    <p>For the final block, \(H^{(N)}\) is the digest. For an intermediate block, \(H^{(i)}\) is the chaining input of block \(i+1\), and the required words appear among the first \(\delta\) observed values of that block, because \(S_0^{(i+1)} = H^{(i)}\). Consequently, the digest is needed only for the last \(\delta\) rounds of the final block.</p>
+
+    <h3><span class="n">3.4</span>Implementation and validation</h3>
+    <p><code>encoder.py</code> computes the digest and records the selected variable at every round; <code>decoder.py</code> reconstructs the message from the trace and the digest and verifies the result by recomputing the hash. The test suite (<code>test_roundtrip.py</code>) exercises all eight variables on messages of 0 to 1000 bytes, including lengths at padding boundaries (55, 56, 64, 65 and 120 bytes). Every recovered message equals the input, and every digest agrees with <code>hashlib</code>. Figure 1 reproduces the procedure for the variable \(h\).</p>
+
+    <figure aria-labelledby="fig1-cap">
+      <div class="machine">
+        <div class="machine-top">
+          <form class="msg-form" id="msg-form">
+            <div class="field">
+              <label for="msg">Message (single block, at most 55 bytes)</label>
+              <input id="msg" name="msg" value="Hello, world" autocomplete="off" spellcheck="false">
+            </div>
+            <button type="submit" id="run">Run 64 rounds</button>
+          </form>
+          <div class="round">Round <output id="round">0</output> / 64</div>
+        </div>
+        <p class="error" id="error" role="alert"></p>
+        <p class="regs-mode" id="regs-mode">(a) Forward computation: state after each round</p>
+        <div class="regs">
+          <div class="fam fam-a" id="fam-a"></div>
+          <div class="fam fam-e" id="fam-e"></div>
+        </div>
+        <div class="trace-head">
+          <span>Observed trace of \(h\), rounds 1 to 64</span>
+          <span id="trace-count">0 / 64 words</span>
+        </div>
+        <div class="trace" id="trace" aria-label="Values of h after each of the 64 rounds"></div>
+        <p class="digest" id="digest"><b>SHA-256:</b> <span>—</span></p>
+
+        <div class="stage">
+          <div class="stage-head">
+            <span class="stage-title">(b) Recovery from the trace and the digest</span>
+            <button type="button" class="secondary" id="recover" disabled>Recover message from trace</button>
+          </div>
+          <pre class="derive" id="derive"></pre>
+          <div class="trace-head">
+            <span>Recovered message schedule \(W_0, \dots, W_{63}\)</span>
+            <span id="w-count">0 / 64 words</span>
+          </div>
+          <div class="wgrid" id="wgrid" aria-label="Recovered message schedule words"></div>
+          <div class="trace-head">
+            <span>Message block assembled from \(W_0, \dots, W_{15}\)</span>
+            <span id="b-count"></span>
+          </div>
+          <div class="bytes" id="bytes" aria-label="Recovered message block, 64 bytes"></div>
+          <p class="recovered" id="recovered" aria-live="polite"></p>
+        </div>
+      </div>
+      <figcaption id="fig1-cap"><b>Figure 1.</b> Interactive reproduction of Section 3 for single-block messages. (a) The rounds of SHA-256 are executed in the browser; shaded cells mark the two words computed in each round, and the outlined variable \(h\) is recorded after every round. (b) The recovery uses only the recorded trace and the digest. In round \(t\), the word \(e_{t+1}\) is read from the trace (outlined), or for the last three rounds from the digest via (8); \(W_t\) then follows from (6) and (7), and the registers are advanced by (3). The sixteen message words are outlined in the schedule grid; each later word is checked against (1) as soon as it is produced and shaded once it agrees.</figcaption>
+    </figure>
+
+    <h2 id="not-ciphertext"><span class="n">4</span>The round trace is not a ciphertext</h2>
+    <p>A natural proposal is to treat the trace as a ciphertext and the digest as the key. Section 3.3 shows why this fails: the digest enters the recovery only through the last \(\delta \le 3\) rounds of the final block, that is, through \(W_{61}, W_{62}, W_{63}\), which are not message words. The message words \(W_0, \dots, W_{15}\) are obtained from the public IV and the trace alone. The script <code>attack_no_key.py</code> replaces the digest by zeros and recovers every message correctly for all eight variables (<code>test_attack.py</code>).</p>
+    <p>Replacing the public IV by a secret value does not remedy the problem. For the variable \(h\), the first three observed values are \(h_1 = g_0\), \(h_2 = f_0\) and \(h_3 = e_0\), which disclose half of the secret initial state directly. An adversary who knows a single plaintext can then recover the other half from \(d_t = e_{t+1} - T_1\). The trace is therefore an encoding of the message rather than an encryption: the computation involves no secret.</p>
+    <p>These observations are consistent with the literature. The invertibility of the SHA-2 round function and the description of its state by the sequences \(A_i\) and \(E_i\) are standard in collision cryptanalysis [<a href="#ref-5">5</a>], and recovering \(W_t\) from leaked intermediate values is the central step of differential power analysis attacks on HMAC-SHA-2 [<a href="#ref-3">3</a>, <a href="#ref-4">4</a>].</p>
+
+    <h2 id="shacal2"><span class="n">5</span>SHACAL-2: the block cipher inside SHA-256</h2>
+    <p>In the trace setting, the message schedule is the quantity to be hidden while the state is public. Reversing these roles yields a block cipher. Removing the feed-forward from the compression function gives a 256-bit block cipher \(E\) with a 512-bit key, known as SHACAL-2 [<a href="#ref-2">2</a>], which was selected for the NESSIE portfolio in 2003. The key \(W_0, \dots, W_{15}\) is expanded by (1) into 64 round keys; the plaintext is the initial state \(S_0\) and the ciphertext is \(S_{64}\). The compression function is recovered as the Davies–Meyer construction \(H^{(i)} = E_{M^{(i)}}(H^{(i-1)}) + H^{(i-1)}\).</p>
+    <p>Decryption applies the inverse round, which follows directly from (2) and (3):</p>
+    $$\begin{aligned} (a_t, b_t, c_t, e_t, f_t, g_t) &amp;= (b_{t+1}, c_{t+1}, d_{t+1}, f_{t+1}, g_{t+1}, h_{t+1}), \\ T_1 &amp;= a_{t+1} - \Sigma_0(a_t) - \mathrm{Maj}(a_t, b_t, c_t), \\ d_t &amp;= e_{t+1} - T_1, \\ h_t &amp;= T_1 - \Sigma_1(e_t) - \mathrm{Ch}(e_t, f_t, g_t) - K_t - W_t. \end{aligned} \tag{9}$$
+    <p>The script <code>sha256_cipher.py</code> uses SHACAL-2 in CBC mode with a random 256-bit IV and authenticates the ciphertext with HMAC-SHA256 [<a href="#ref-9">9</a>], implemented on top of the same SHA-256 code, in the encrypt-then-MAC composition. The encryption and authentication keys are derived from a random 256-bit master key. The test suite verifies that \(E_{M}(H) + H\) coincides with the compression function, that the inverse rounds invert encryption exactly, and that flipping a single plaintext bit changes on average approximately 128 of the 256 ciphertext bits, as expected of a pseudorandom permutation.</p>
+
+    <h2 id="mle"><span class="n">6</span>Message-locked encryption with the digest as key</h2>
+    <p>The final construction satisfies three constraints: (i) the key is the SHA-256 digest of the input string; (ii) the ciphertext is derived from the round trace of that string; and (iii) no cryptographic primitive other than SHA-256 is used.</p>
+
+    <h3><span class="n">6.1</span>Where a secret can enter</h3>
+    <p>Section 4 established that the trace can be computed forward from the public IV. Within SHA-256, the only input through which a secret can enter the computation is the chaining value. The digest is itself a chaining value: it is precisely the value that would serve as the chaining input of a subsequent block. This suggests placing the digest \(K\) in the chaining-input position of the compression function \(f\), where \(f(H, M) = E_M(H) + H\), and using its output as a keystream.</p>
+
+    <h3><span class="n">6.2</span>Construction</h3>
+    <p>Let \(s\) be the input string, optionally extended by a 16-byte random salt; let \(T = (T_1, \dots, T_{64N})\) be the trace of the variable \(h\) over all blocks; and let \(D\) be a fixed 56-byte domain-separation label. Encryption computes</p>
+    $$K = \text{SHA-256}(s), \qquad M_j = f\bigl(K,\; D \,\|\, \langle j \rangle_{64}\bigr), \qquad C_t = T_t + M_t, \tag{10}$$
+    <p>where \(\langle j \rangle_{64}\) is the 64-bit big-endian encoding of the counter \(j\), and the eight words of each \(M_0, M_1, \dots\) are concatenated to form the mask sequence \((M_t)\). Decryption recomputes the mask from \(K\), obtains \(T_t = C_t - M_t\), and applies the recovery procedure of Section 3. Figure 2 summarises the data flow.</p>
+
+    <figure class="diagram" aria-labelledby="fig2-cap">
+      <svg viewBox="0 0 770 270" role="img" aria-labelledby="fig2-title">
+        <title id="fig2-title">Data flow of the message-locked encryption scheme. The string passes through the SHA-256 rounds; the trace of h gives T and the digest gives the key K. K enters the compression function in the chaining-input position to produce the mask M, and C equals T plus M modulo 2 to the 32.</title>
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="ar-k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow key" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="ar-d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-arrow data" d="M0,0 L10,5 L0,10 z"/></marker>
+        </defs>
+        <rect class="d-box" x="10" y="110" width="120" height="58" rx="4"/>
+        <text class="d-t" x="70" y="135" text-anchor="middle">string s</text>
+        <text class="d-s" x="70" y="154" text-anchor="middle">optional salt</text>
+
+        <rect class="d-box" x="165" y="110" width="140" height="58" rx="4"/>
+        <text class="d-t" x="235" y="135" text-anchor="middle">SHA-256</text>
+        <text class="d-s" x="235" y="154" text-anchor="middle">64 rounds per block</text>
+        <path class="d-line" d="M130,139 H161" marker-end="url(#ar)"/>
+
+        <path class="d-line data" d="M305,128 H328 V64 H346" marker-end="url(#ar-d)"/>
+        <path class="d-line key" d="M305,150 H328 V214 H346" marker-end="url(#ar-k)"/>
+
+        <rect class="d-box data" x="350" y="35" width="120" height="58" rx="4"/>
+        <text class="d-t" x="410" y="60" text-anchor="middle">trace T</text>
+        <text class="d-s" x="410" y="79" text-anchor="middle">h after each round</text>
+
+        <rect class="d-box key" x="350" y="185" width="120" height="58" rx="4"/>
+        <text class="d-t" x="410" y="210" text-anchor="middle">key K</text>
+        <text class="d-s" x="410" y="229" text-anchor="middle">digest</text>
+
+        <path class="d-line key" d="M470,214 H511" marker-end="url(#ar-k)"/>
+        <rect class="d-box key" x="515" y="185" width="160" height="58" rx="4"/>
+        <text class="d-m" x="595" y="210" text-anchor="middle">f(K, D‖⟨j⟩)</text>
+        <text class="d-s" x="595" y="229" text-anchor="middle">K as chaining input</text>
+
+        <path class="d-line key" d="M595,185 V88" marker-end="url(#ar-k)"/>
+        <text class="d-s" x="604" y="142">mask M</text>
+
+        <path class="d-line data" d="M470,64 H571" marker-end="url(#ar-d)"/>
+        <circle class="d-box" cx="595" cy="64" r="21"/>
+        <text class="d-t" x="595" y="70" text-anchor="middle">+</text>
+        <text class="d-s" x="595" y="31" text-anchor="middle">mod 2³²</text>
+
+        <path class="d-line" d="M616,64 H641" marker-end="url(#ar)"/>
+        <rect class="d-box" x="645" y="35" width="115" height="58" rx="4"/>
+        <text class="d-t" x="702" y="60" text-anchor="middle">ciphertext C</text>
+        <text class="d-s" x="702" y="79" text-anchor="middle">C = T + M</text>
+      </svg>
+      <figcaption id="fig2-cap"><b>Figure 2.</b> Data flow of the scheme in Section 6.2. The data path (trace) is drawn in ochre and the key path in blue. The key enters the compression function in the chaining-input position, the position that a digest naturally occupies within SHA-256.</figcaption>
+    </figure>
+
+    <h3><span class="n">6.3</span>Integrity</h3>
+    <p>Decryption accepts only if the recovered string hashes to \(K\) and its recomputed trace equals the unmasked ciphertext in every word. An adversary who modifies the ciphertext so that it decrypts to a different string \(s' \ne s\) must therefore ensure \(\text{SHA-256}(s') = \text{SHA-256}(s)\), that is, find a collision. In the test suite, flipping a single bit at any position of the ciphertext, as well as supplying an incorrect key, leads to rejection.</p>
+
+    <h3><span class="n">6.4</span>Security argument</h3>
+    <p>Without \(K\), the mask is indistinguishable from random under the assumption that the compression function is a pseudorandom function when keyed through its chaining input, the same assumption that underlies the security proofs of NMAC and HMAC [<a href="#ref-6">6</a>]. The plaintext, however, depends on the key, since \(K = \text{SHA-256}(s)\), and the final trace words are related to \(K\) through (8). Such key-dependent inputs fall outside the standard pseudorandom-function model; as in the literature on message-locked encryption [<a href="#ref-8">8</a>], a rigorous treatment requires the random oracle model.</p>
+
+    <h3><span class="n">6.5</span>Inherent limitations</h3>
+    <p>The construction is an instance of convergent encryption [<a href="#ref-7">7</a>], formalised as message-locked encryption [<a href="#ref-8">8</a>]. The following limitations stem from the defining rule that the key is the hash of the message, not from the implementation.</p>
+    <ol>
+      <li><strong>Exhaustive search over predictable messages.</strong> If the message belongs to a small set (for example, a yes/no answer, a PIN or a date), an adversary can hash each candidate and test it as the key. The optional salt appends 16 random bytes to the string before hashing, and the key remains the digest of the string actually processed. In the test suite, an unsalted short message is recovered by trial, whereas the salted message is not. The salt is drawn from the operating system, since SHA-256 is deterministic and cannot generate randomness.</li>
+      <li><strong>Per-message keys.</strong> Each message has its own key, which must be conveyed to the recipient over a separate confidential channel.</li>
+      <li><strong>Determinism.</strong> Without salt, encryption is deterministic: identical messages produce identical ciphertexts.</li>
+      <li><strong>Length and expansion.</strong> The ciphertext reveals the message length to a granularity of 64 bytes and is four times the size of the padded message.</li>
+    </ol>
+
+    <h2 id="conclusion"><span class="n">7</span>Conclusion</h2>
+    <p>The SHA-256 compression function computes only two new words per round, and every working variable is a delayed copy of one of them. As a consequence, the round trace of any single variable, together with the digest, determines the message, and the trace by itself provides no confidentiality. Placing a secret in the chaining-input position of the compression function, the only position at which SHA-256 admits one, yields a message-locked encryption scheme whose key is the digest and whose ciphertext is the masked trace. The scheme inherits the known limitations of message-locked encryption, most notably its vulnerability to exhaustive search over predictable messages. The implementation is intended for study, has not been independently audited, and should not be used to protect real data.</p>
+
+    <h2 id="references">References</h2>
+    <ol class="refs">
+      <li id="ref-1">National Institute of Standards and Technology. <em>Secure Hash Standard (SHS)</em>. FIPS PUB 180-4, 2015.</li>
+      <li id="ref-2">H. Handschuh and D. Naccache. <em>SHACAL</em>. Submission to the NESSIE project, 2000–2001.</li>
+      <li id="ref-3">R. McEvoy, M. Tunstall, C. C. Murphy and W. P. Marnane. Differential power analysis of HMAC based on SHA-2, and countermeasures. In <em>WISA 2007</em>.</li>
+      <li id="ref-4">S. Belaïd, L. Bettale, E. Dottax, L. Genelle and F. Rondepierre. Differential power analysis of HMAC SHA-2 in the Hamming weight model. In <em>SECRYPT 2013</em>.</li>
+      <li id="ref-5">F. Mendel, T. Nad and M. Schläffer. Improving local collisions: new attacks on reduced SHA-256. In <em>EUROCRYPT 2013</em>.</li>
+      <li id="ref-6">M. Bellare. New proofs for NMAC and HMAC: security without collision-resistance. In <em>CRYPTO 2006</em>.</li>
+      <li id="ref-7">J. R. Douceur, A. Adya, W. J. Bolosky, D. Simon and M. Theimer. Reclaiming space from duplicate files in a serverless distributed file system. In <em>ICDCS 2002</em>.</li>
+      <li id="ref-8">M. Bellare, S. Keelveedhi and T. Ristenpart. Message-locked encryption and secure deduplication. In <em>EUROCRYPT 2013</em>.</li>
+      <li id="ref-9">H. Krawczyk, M. Bellare and R. Canetti. <em>HMAC: Keyed-Hashing for Message Authentication</em>. RFC 2104, 1997.</li>
+    </ol>
+
+    <h2 id="appendix">Appendix A: Reproducing the results</h2>
+    <p>The implementation requires Python 3 and no external packages. On Windows, replace <code>python</code> with <code>py</code>. Program output and source comments are in Turkish.</p>
+<pre class="cmd"># Section 3: single-register recovery
+python encoder.py "Hello, world" -r h -o trace.json
+python decoder.py trace.json
+
+# Section 4: keyless recovery of a plain trace
+python attack_no_key.py trace.json
+
+# Section 5: SHACAL-2 with HMAC-SHA256
+python sha256_cipher.py keygen -o master.key
+python sha256_cipher.py enc "Secret message" -k master.key -o message.s2c
+python sha256_cipher.py dec message.s2c -k master.key
+
+# Section 6: message-locked encryption (key = digest)
+python sha256_mle.py enc "Secret message" -o message.mle --key-out message.key
+python sha256_mle.py enc "yes" --tuz -o message.mle --key-out message.key
+python sha256_mle.py dec message.mle -k message.key
+
+# Test suite
+python test_roundtrip.py
+python test_attack.py
+python test_sha256_cipher.py
+python test_sha256_mle.py</pre>
+    <div class="table-wrap">
+      <p class="cap"><b>Table 2.</b> Repository contents.</p>
+      <table>
+        <thead><tr><th>File</th><th>Contents</th></tr></thead>
+        <tbody>
+          <tr><td><code>sha256_core.py</code></td><td>SHA-256 from scratch: round function, inverse round, message schedule, trace recording</td></tr>
+          <tr><td><code>encoder.py</code>, <code>decoder.py</code></td><td>Single-register trace generation and message recovery (Section 3)</td></tr>
+          <tr><td><code>attack_no_key.py</code></td><td>Recovery of a plain trace without the digest (Section 4)</td></tr>
+          <tr><td><code>sha256_cipher.py</code></td><td>SHACAL-2 in CBC mode with HMAC-SHA256 (Section 5)</td></tr>
+          <tr><td><code>sha256_mle.py</code></td><td>Message-locked encryption with the digest as key (Section 6)</td></tr>
+          <tr><td><code>test_*.py</code></td><td>Validation tests for each section</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </article>
+</div>
+
+<footer>
+  This page and the accompanying implementation are available at <a href="https://github.com/ErtungaYusuf/sha256-trace-cipher">github.com/ErtungaYusuf/sha256-trace-cipher</a>. Figure 1 performs the computations of Section 3 in JavaScript, following the Python implementation step by step.
+</footer>
+
+<script>
+(() => {
+  const K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  ];
+  const IV = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+  const S0 = x => (rotr(x, 2) ^ rotr(x, 13) ^ rotr(x, 22)) >>> 0;
+  const S1 = x => (rotr(x, 6) ^ rotr(x, 11) ^ rotr(x, 25)) >>> 0;
+  const s0 = x => (rotr(x, 7) ^ rotr(x, 18) ^ (x >>> 3)) >>> 0;
+  const s1 = x => (rotr(x, 17) ^ rotr(x, 19) ^ (x >>> 10)) >>> 0;
+  const ch = (x, y, z) => ((x & y) ^ (~x & z)) >>> 0;
+  const maj = (x, y, z) => ((x & y) ^ (x & z) ^ (y & z)) >>> 0;
+  const hex = x => (x >>> 0).toString(16).padStart(8, "0");
+
+  function padBlock(bytes) {
+    const b = new Uint8Array(64);
+    b.set(bytes);
+    b[bytes.length] = 0x80;
+    new DataView(b.buffer).setUint32(60, bytes.length * 8);
+    return b;
+  }
+  function schedule(block) {
+    const dv = new DataView(block.buffer), w = [];
+    for (let t = 0; t < 16; t++) w.push(dv.getUint32(4 * t));
+    for (let t = 16; t < 64; t++) w.push((s1(w[t - 2]) + w[t - 7] + s0(w[t - 15]) + w[t - 16]) >>> 0);
+    return w;
+  }
+  function step(s, k, w) {
+    const [a, b, c, d, e, f, g, h] = s;
+    const t1 = (h + S1(e) + ch(e, f, g) + k + w) >>> 0;
+    const t2 = (S0(a) + maj(a, b, c)) >>> 0;
+    return [(t1 + t2) >>> 0, a, b, c, (d + t1) >>> 0, e, f, g];
+  }
+  function hashWithStates(bytes) {
+    const w = schedule(padBlock(bytes));
+    let s = IV.slice();
+    const states = [s];
+    for (let t = 0; t < 64; t++) { s = step(s, K[t], w[t]); states.push(s); }
+    return { states, H: IV.map((x, i) => (x + s[i]) >>> 0) };
+  }
+  // Section 3 for the variable h (delay 3): h_t = e_{t-3}, so e_{t+1} is the trace value of round t+4;
+  // e_62..e_64 are not in the trace and come from the digest via (8).
+  function recoverSteps(trace, H) {
+    let s = IV.slice();
+    const ws = [], steps = [];
+    for (let t = 0; t < 64; t++) {
+      const [, , , d, e, f, g, h] = s;
+      const fromTrace = t + 1 <= 61;
+      const m = 63 - t;
+      const src = fromTrace ? trace[t + 3] : (H[4 + m] - IV[4 + m]) >>> 0;
+      const partial = (h + S1(e) + ch(e, f, g) + K[t]) >>> 0;
+      const t1 = (src - d) >>> 0;
+      const w = (t1 - partial) >>> 0;
+      ws.push(w);
+      const expected = t >= 16 ? (s1(ws[t - 2]) + ws[t - 7] + s0(ws[t - 15]) + ws[t - 16]) >>> 0 : null;
+      s = step(s, K[t], w);
+      steps.push({ t, src, fromTrace, m, t1, w, expected, state: s });
+    }
+    const block = new Uint8Array(64), dv = new DataView(block.buffer);
+    ws.forEach((w, i) => { if (i < 16) dv.setUint32(4 * i, w); });
+    const consistent = steps.every(st => st.expected === null || st.expected === st.w);
+    const hashOk = IV.every((x, i) => ((x + s[i]) >>> 0) === H[i]);
+    const len = dv.getUint32(60) / 8;
+    const text = len <= 55 ? new TextDecoder().decode(block.slice(0, len)) : "";
+    return { steps, block, len, text, consistent, hashOk };
+  }
+
+  const pad = (str, n) => str.padEnd(n, " ");
+  function deriveText(st) {
+    const t = st.t, n = t + 1, W = 46;
+    const source = st.fromTrace
+      ? `e[${n}] = h[${n + 3}]   (trace, round ${n + 3})`
+      : `e[${n}] = H[${4 + st.m}] − IV[${4 + st.m}]   (digest, eq. 8)`;
+    const lines = [
+      `Round t = ${t}`,
+      `${pad(source, W)}= ${hex(st.src)}`,
+      `${pad(`T1 = e[${n}] − d[${t}]`, W)}= ${hex(st.t1)}`,
+      `${pad(`W[${t}] = T1 − h[${t}] − Σ1(e[${t}]) − Ch(·) − K[${t}]`, W)}= ${hex(st.w)}`,
+    ];
+    lines.push(st.expected === null
+      ? `W[${t}] is message word ${t}: block bytes ${4 * t} to ${4 * t + 3}`
+      : `${pad(`check (1): σ1(W[${t - 2}]) + W[${t - 7}] + σ0(W[${t - 15}]) + W[${t - 16}]`, W)}= ${hex(st.expected)}   ${st.expected === st.w ? "agrees" : "DISAGREES"}`);
+    return lines.join("\n");
+  }
+  const byteTok = b => (b > 0x20 && b < 0x7f) ? String.fromCharCode(b) : b === 0x20 ? "␣" : b.toString(16).padStart(2, "0");
+
+  const famA = document.getElementById("fam-a"), famE = document.getElementById("fam-e");
+  const roles = ["computed: T1 + T2", "copy of a", "copy of b", "copy of c", "computed: d + T1", "copy of e", "copy of f", "copy of g"];
+  const cells = "abcdefgh".split("").map((n, i) => {
+    const el = document.createElement("div");
+    el.className = "reg" + (i === 0 || i === 4 ? " new" : "") + (n === "h" ? " leak" : "");
+    el.innerHTML = `<span class="name">${n}</span><span class="val">${hex(IV[i])}</span><span class="role">${roles[i]}</span>`;
+    (i < 4 ? famA : famE).appendChild(el);
+    return el.querySelector(".val");
+  });
+  const traceEl = document.getElementById("trace");
+  const slots = Array.from({ length: 64 }, (_, t) => {
+    const sp = document.createElement("span");
+    sp.title = `round ${t + 1}`;
+    sp.textContent = "········";
+    traceEl.appendChild(sp);
+    return sp;
+  });
+  const roundOut = document.getElementById("round");
+  const countOut = document.getElementById("trace-count");
+  const digestOut = document.querySelector("#digest span");
+  const recoverBtn = document.getElementById("recover");
+  const runBtn = document.getElementById("run");
+  const recovered = document.getElementById("recovered");
+  const errorOut = document.getElementById("error");
+  const input = document.getElementById("msg");
+  const digestP = document.getElementById("digest");
+  const derive = document.getElementById("derive");
+  const regsMode = document.getElementById("regs-mode");
+  const wCount = document.getElementById("w-count");
+  const bCount = document.getElementById("b-count");
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const wgrid = document.getElementById("wgrid");
+  const wcells = Array.from({ length: 64 }, (_, t) => {
+    const sp = document.createElement("span");
+    sp.title = `W[${t}]`;
+    if (t < 16) sp.classList.add("msg");
+    wgrid.appendChild(sp);
+    return sp;
+  });
+  const bytesEl = document.getElementById("bytes");
+  const groups = Array.from({ length: 16 }, (_, t) => {
+    const g = document.createElement("div");
+    g.className = "grp";
+    g.title = `W[${t}]: bytes ${4 * t} to ${4 * t + 3}`;
+    const spans = Array.from({ length: 4 }, () => g.appendChild(document.createElement("span")));
+    bytesEl.appendChild(g);
+    return { g, spans };
+  });
+
+  const MODE_FWD = "(a) Forward computation: state after each round";
+  const MODE_REC = "(b) Recovery: state recomputed from the recovered words W[t]";
+  const IDLE = "The recovery has not been run. Select “Recover message from trace” to reconstruct the message from the trace and the digest alone.";
+
+  let timer = null, rtimer = null, current = null;
+
+  function resetRecovery() {
+    clearInterval(rtimer);
+    wcells.forEach(sp => { sp.textContent = "········"; sp.classList.remove("on", "ok", "bad"); });
+    groups.forEach(({ g, spans }) => { g.classList.remove("on"); spans.forEach(s => { s.textContent = "··"; s.classList.remove("pad"); }); });
+    slots.forEach(sp => sp.classList.remove("use"));
+    digestP.classList.remove("use");
+    derive.textContent = IDLE;
+    wCount.textContent = "0 / 64 words";
+    bCount.textContent = "";
+    recovered.textContent = "";
+    regsMode.textContent = MODE_FWD;
+  }
+
+  function showStep(res, i) {
+    const st = res.steps[i];
+    st.state.forEach((v, k) => { cells[k].textContent = hex(v); });
+    roundOut.textContent = i + 1;
+    slots.forEach(sp => sp.classList.remove("use"));
+    if (st.fromTrace) slots[st.t + 3].classList.add("use");
+    digestP.classList.toggle("use", !st.fromTrace);
+    derive.textContent = deriveText(st);
+    const wc = wcells[i];
+    wc.textContent = hex(st.w);
+    wc.classList.add("on");
+    if (st.expected !== null) wc.classList.add(st.expected === st.w ? "ok" : "bad");
+    if (i < 16) {
+      groups[i].g.classList.add("on");
+      groups[i].spans.forEach((s, k) => { s.textContent = byteTok(res.block[4 * i + k]); });
+    }
+    wCount.textContent = `${i + 1} / 64 words`;
+  }
+
+  function finishRecovery(res) {
+    slots.forEach(sp => sp.classList.remove("use"));
+    digestP.classList.remove("use");
+    groups.forEach(({ spans }, t) => spans.forEach((s, k) => s.classList.toggle("pad", 4 * t + k >= res.len)));
+    bCount.textContent = `${res.len} message bytes, ${64 - res.len} padding bytes`;
+    recovered.textContent = "";
+    if (res.consistent && res.hashOk) {
+      const code = document.createElement("code");
+      code.textContent = res.text;
+      recovered.append("Recovered message: ", code, ". Every word W[16] to W[63] agrees with (1), and the recomputed digest equals the given digest.");
+    } else {
+      recovered.textContent = "The recovered words are inconsistent with the message schedule or the digest.";
+    }
+    recoverBtn.disabled = false;
+    runBtn.disabled = false;
+  }
+
+  function show(states, r) {
+    states[r].forEach((v, i) => { cells[i].textContent = hex(v); });
+    roundOut.textContent = r;
+    for (let t = 0; t < 64; t++) {
+      const on = t < r;
+      slots[t].textContent = on ? hex(states[t + 1][7]) : "········";
+      slots[t].classList.toggle("on", on);
+    }
+    countOut.textContent = `${r} / 64 words`;
+  }
+
+  function run(animate) {
+    const bytes = new TextEncoder().encode(input.value);
+    if (bytes.length > 55) {
+      errorOut.textContent = `The message is ${bytes.length} bytes. This figure supports single-block messages of at most 55 bytes; the Python implementation supports arbitrary lengths.`;
+      return;
+    }
+    errorOut.textContent = "";
+    clearInterval(timer);
+    current = hashWithStates(bytes);
+    resetRecovery();
+    recoverBtn.disabled = true;
+    digestOut.textContent = "—";
+    const finish = () => {
+      show(current.states, 64);
+      digestOut.textContent = current.H.map(hex).join("");
+      recoverBtn.disabled = false;
+      runBtn.disabled = false;
+    };
+    if (!animate || reduce) { finish(); return; }
+    runBtn.disabled = true;
+    let r = 0;
+    show(current.states, 0);
+    timer = setInterval(() => {
+      r++;
+      if (r >= 64) { clearInterval(timer); finish(); return; }
+      show(current.states, r);
+    }, 70);
+  }
+
+  document.getElementById("msg-form").addEventListener("submit", e => { e.preventDefault(); run(true); });
+  recoverBtn.addEventListener("click", () => {
+    if (!current) return;
+    // Only the trace of h and the digest are passed on; the message itself is not used.
+    const res = recoverSteps(current.states.slice(1).map(s => s[7]), current.H);
+    resetRecovery();
+    regsMode.textContent = MODE_REC;
+    show(current.states, 64);
+    IV.forEach((v, k) => { cells[k].textContent = hex(v); });
+    roundOut.textContent = 0;
+    recoverBtn.disabled = true;
+    runBtn.disabled = true;
+    if (reduce) {
+      for (let i = 0; i < 64; i++) showStep(res, i);
+      finishRecovery(res);
+      return;
+    }
+    let i = 0;
+    rtimer = setInterval(() => {
+      showStep(res, i);
+      i++;
+      if (i >= 64) { clearInterval(rtimer); finishRecovery(res); }
+    }, 110);
+  });
+
+  run(false);
+
+  window.addEventListener("load", () => {
+    if (window.renderMathInElement) {
+      renderMathInElement(document.body, {
+        delimiters: [
+          { left: "$$", right: "$$", display: true },
+          { left: "\\(", right: "\\)", display: false },
+        ],
+        ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code", "input"],
+        throwOnError: false,
+      });
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,222 +1,73 @@
-# SHA-256'nın İçinden Geçen Yol
+# Single-Register Message Recovery in SHA-256
 
-### Tek bir register'dan mesajı geri kurmak ve sonuç hash'i anahtar yapan bir şifreleme
+**and a Message-Locked Encryption Scheme Built from Its Compression Function**
 
-> **Uyarı:** Bu depo eğitim ve araştırma amaçlıdır. Kod bağımsız bir güvenlik denetiminden geçmemiştir ve saf Python olduğu için yavaştır. Gerçek verileri korumak için kullanmayın.
+**Full article:** <https://ertungayusuf.github.io/sha256-trace-cipher/>
 
-SHA-256 çoğu zaman bir kara kutu gibi düşünülür: içine bir metin girer, 256 bitlik bir özet çıkar ve geri dönüş yoktur. Oysa kutunun içi şaşırtıcı derecede düzenlidir. Bu yazıda, sıkıştırma fonksiyonunun içindeki sekiz çalışma register'ını (`a`…`h`) yakından inceliyor ve üç soruyu yanıtlıyoruz:
+> **Disclaimer.** This repository is intended for study and research. The implementation has not been independently audited and, being written in pure Python, is slow. It must not be used to protect real data.
 
-1. Her turda register'lardan **sadece birinin** değerini ve sonuç hash'i bilirsek, mesajı baştan kurabilir miyiz? **Evet**, sekizinden herhangi biriyle.
-2. Bu "tur izi" (trace) bir şifreli metin olarak kullanılabilir mi? **Hayır**, anahtar olmadan da çözülüyor.
-3. Kurallara sadık kalarak (anahtar = SHA-256 sonuç hash'i, şifreli metin = mesajın SHA-256'dan geçerkenki izi, SHA-256 dışında kriptografik bileşen yok) çalışan bir şifreleme kurulabilir mi? **Evet**, SHA-256'nın iç yapısındaki doğru noktayı kullanarak.
+## Abstract
 
-Tüm kriptografi [`sha256_core.py`](sha256_core.py) içinde sıfırdan yazılmış SHA-256 üzerinde çalışır. Python'un `hashlib` / `hmac` modülleri yalnızca **testlerde**, kendi uygulamamızın doğruluğunu karşılaştırmak için kullanılır.
+We study the evolution of the internal state of the SHA-256 compression function and show that the per-round values of any single one of the eight working variables *a, …, h*, together with the final digest, uniquely determine the input message. The result follows from the fact that each round computes only two new words, *a* and *e*, while the remaining six are delayed copies; consequently, each message schedule word *W<sub>t</sub>* can be recovered from one register by modular subtraction. We provide a reference implementation and verify recovery for all eight registers on messages of 0 to 1000 bytes. We then show that such a round trace does not constitute a ciphertext, since the digest enters only the final three rounds and the message words are recoverable without it. Finally, we describe two constructions that use no cryptographic primitive other than SHA-256: SHACAL-2 in an authenticated CBC mode, and a message-locked encryption scheme in which the key is the SHA-256 digest of the message and the ciphertext is the round trace masked by the compression function keyed through its chaining input. We discuss the underlying assumptions and the inherent limitations of message-locked encryption.
 
----
+## Summary of results
 
-## 1. SHA-256'ya kısa bir bakış
+1. **Single-register recovery.** In each round, only *a* and *e* are newly computed. The other six variables are delayed copies: *b<sub>t</sub> = a<sub>t−1</sub>*, …, *h<sub>t</sub> = e<sub>t−3</sub>*. Given the full state *S<sub>t</sub>*, the next value of *a* or *e* determines *W<sub>t</sub>* uniquely, and the procedure is applied inductively from the IV. For the delayed variables, the final one to three values of each block follow from the feed-forward *H<sup>(i)</sup> = H<sup>(i−1)</sup> + S<sub>64</sub>*.
+2. **The trace is not a ciphertext.** The digest is used only for *W<sub>61</sub>, …, W<sub>63</sub>*, which are not message words. The message is therefore recoverable from the trace alone (`attack_no_key.py`).
+3. **SHACAL-2.** Removing the feed-forward turns the compression function into a 256-bit block cipher with a 512-bit key. Decryption runs the rounds in reverse.
+4. **Message-locked encryption.** The key is *K = SHA-256(s)*. The ciphertext is the trace of *h*, masked word by word modulo 2<sup>32</sup> with *f(K, D ‖ j)*, where *f* is the compression function with *K* in the chaining-input position. Integrity follows from the requirement that the recovered string hash to *K*.
 
-Mesaj önce dolgulanır (padding: `0x80` baytı, sıfırlar ve 64 bitlik uzunluk) ve 512 bitlik bloklara bölünür. Her blok 16 adet 32 bitlik kelimeye (`W[0..15]`) ayrılır ve **mesaj genişletme** (message schedule) ile 64 kelimeye uzatılır:
+The article discusses the security assumptions and the inherent limitations of the last construction: exhaustive search over predictable messages (mitigated by an optional salt), per-message keys, determinism without salt, and ciphertext expansion.
 
-```
-W[t] = σ1(W[t-2]) + W[t-7] + σ0(W[t-15]) + W[t-16]      (t = 16..63, mod 2³²)
-```
+## Usage
 
-Sıkıştırma fonksiyonu sekiz register'lık bir durumla başlar. İlk blokta bu durum standart IV'dir, sonraki bloklarda bir önceki bloğun çıktısıdır. 64 tur boyunca her turda şu hesaplanır:
-
-```
-T1 = h + Σ1(e) + Ch(e,f,g) + K[t] + W[t]
-T2 = Σ0(a) + Maj(a,b,c)
-
-a ← T1 + T2      b ← a      c ← b      d ← c
-e ← d + T1       f ← e      g ← f      h ← g
-```
-
-64 turun sonunda **feed-forward** uygulanır: `H_yeni = H_eski + durum` (kelime kelime, mod 2³²). Son bloğun `H` değeri, sonuç hash'tir.
-
-## 2. Kritik gözlem: aslında sadece iki register var
-
-Tur denklemlerine dikkatle bakınca, her turda yalnızca **iki** register'ın yeni hesaplandığı görülür: `a` ve `e`. Geri kalan altısı sadece kaydırmadır. Dolayısıyla her register, `a` ya da `e` dizisinin gecikmeli bir kopyasıdır:
-
-| Register | Eşittir | Gecikme |
-|---|---|---|
-| `a` | `a_t` | 0 |
-| `b` | `a_{t-1}` | 1 |
-| `c` | `a_{t-2}` | 2 |
-| `d` | `a_{t-3}` | 3 |
-| `e` | `e_t` | 0 |
-| `f` | `e_{t-1}` | 1 |
-| `g` | `e_{t-2}` | 2 |
-| `h` | `e_{t-3}` | 3 |
-
-Şimdi durumu IV'den başlayarak ileriye doğru takip ettiğimizi varsayalım. `t` turundaki durumun tamamı biliniyorsa, `T1`'in `W[t]` dışındaki bütün terimleri bilinir. Sıradaki `a` (ya da `e`) değeri bilindiği anda `W[t]` **mod 2³² toplama ile tek şekilde** belirlenir:
-
-```
-a ailesi:  T1 = a_{t+1} − T2(a_t, b_t, c_t)
-e ailesi:  T1 = e_{t+1} − d_t
-sonra:     W[t] = T1 − (h_t + Σ1(e_t) + Ch(e_t, f_t, g_t) + K[t])
-```
-
-`W[t]` bulununca tur normal şekilde ilerletilir ve durum yine tamamen bilinir. Bu tümevarımla 64 turun hepsi çözülür. **`W[0..15]` mesaj bloğunun ta kendisidir.** `W[16..63]` ise mesaj genişletme formülüyle tutmak zorundadır. Bu da ücretsiz bir tutarlılık kontrolü sağlar.
-
-### Gecikmeli register'lar ve sonuç hash'in rolü
-
-`a` ya da `e` sızdırılırsa sonuç hash'e hiç gerek kalmaz. Gecikmeli register'larda (`b, c, d, f, g, h`) ise bloğun son 1–3 değeri trace'te yoktur. Örneğin `h` için `e_62, e_63, e_64` eksiktir. Bunlar feed-forward eşitliğinden gelir:
-
-```
-durum_64 = (a64, a63, a62, a61, e64, e63, e62, e61)
-H_i = H_{i−1} + durum_64   ⇒   e_{64−m} = H_i[4+m] − H_{i−1}[4+m]
-```
-
-Son blokta `H_i` sonuç hash'tir. Ara bloklarda ise `H_i` bir sonraki bloğun IV'sidir ve bu değerler sonraki bloğun ilk 1–3 trace değerinde zaten görünür. Böylece çok bloklu mesajlar da eksiksiz çözülür.
-
-**Uygulama:** [`encoder.py`](encoder.py) mesajı hash'ler ve seçilen register'ın her turdaki değerini JSON'a yazar. [`decoder.py`](decoder.py) bu trace'ten ve sonuç hash'ten mesajı kurar ve hash'i yeniden hesaplayarak doğrular. [`test_roundtrip.py`](test_roundtrip.py) sekiz register'ın hepsini, blok sınırlarındaki uzunluklar dahil (55, 56, 64, 65, 120 bayt…) 0–1000 baytlık mesajlarla dener. Hepsi `hashlib` ile birebir aynı sonucu verir.
-
-## 3. Trace neden bir şifreli metin değildir?
-
-Akla ilk gelen fikir, trace'i şifreli metin, sonuç hash'i de anahtar olarak kullanmaktır. Ama yukarıdaki türetmeye bakınca sorun hemen görülür: sonuç hash yalnızca son bloğun **son 1–3 turunda**, yani `W[61..63]`'te kullanılır. Bunlar mesaj kelimesi değildir. Mesaj kelimeleri `W[0..15]` ise herkesin bildiği IV'den ileri doğru, sadece trace ile bulunur.
-
-[`attack_no_key.py`](attack_no_key.py) sonuç hash yerine sıfır koyar ve mesajı yine eksiksiz çıkarır. [`test_attack.py`](test_attack.py) bunun sekiz register'ın hepsinde işe yaradığını gösterir.
-
-IV'yi gizli bir anahtar yapmak da yetmez. `h` trace'i ilk üç turda IV'nin `e` yarısını açıkça verir. Tek bir düz metni bilen saldırgan ise `d_t = e_{t+1} − T1` eşitliğinden `a` yarısını tur tur geri çıkarır.
-
-Ana ders şu: **Trace bir şifreleme değil, bir kodlamadır.** Hesapta gizli hiçbir şey yoktur.
-
-Bu gözlem kriptografide yeni değildir. SHA-2 tur fonksiyonunun tersinirliği ve durumun `A_i`/`E_i` dizileriyle ifadesi kriptanalizde standarttır (bkz. Mendel–Nad–Schläffer). Sızan ara değerlerden `W[t]`'ye ulaşmak da HMAC-SHA-2'ye yönelik güç analizi (DPA) saldırılarının temel adımıdır (bkz. McEvoy ve diğ.; Belaïd ve diğ.).
-
-## 4. Rolleri tersine çevirmek: SHA-256'nın içindeki blok şifre
-
-Trace şemasında `W` gizlenmek istenen şeydi, durum ise herkese açıktı. Roller tersine çevrilirse ne olur?
-
-Feed-forward kaldırıldığında sıkıştırma fonksiyonu 256 bitlik bir **blok şifreye** dönüşür. Bu şifrenin adı **SHACAL-2**'dir (Handschuh & Naccache). NESSIE projesi 2003'te SHACAL-2'yi önerilen algoritmalar arasına seçmiştir.
-
-- **Anahtar:** 512 bit, `W[0..15]`. Mesaj genişletme bu anahtardan 64 tur anahtarı üretir.
-- **Düz metin:** başlangıç durumu `a..h` (32 bayt).
-- **Şifreli metin:** 64 tur sonrasındaki `a..h`.
-
-Çözme, turları geriye doğru çalıştırmaktır. Bu, decoder'daki tersine çevirmenin aynısıdır:
-
-```
-a = b'   b = c'   c = d'   e = f'   f = g'   g = h'
-T2 = Σ0(a) + Maj(a,b,c)
-T1 = a' − T2
-d  = e' − T1
-h  = T1 − Σ1(e) − Ch(e,f,g) − K[t] − W[t]
-```
-
-[`sha256_cipher.py`](sha256_cipher.py) bu fikri CBC modu ve kendi HMAC-SHA256'mızla (encrypt-then-MAC) birleştirir. Anahtar, bir kez üretilen rastgele bir dosyadır. [`test_sha256_cipher.py`](test_sha256_cipher.py) şunları doğrular:
-- `SHACAL-2(H) + H`, SHA-256 sıkıştırmasıyla birebir aynıdır.
-- Ters turlar şifrelemeyi tam olarak geri alır.
-- Düz metinde tek bir bitin değişmesi, şifreli blokta ortalama **~128 / 256** bit değiştirir (ideal çığ etkisi).
-
-## 5. Sonuç hash'i anahtar yapmak: mesaja kilitli şifreleme
-
-Asıl hedefimiz daha katı kurallara sahipti:
-
-- **Anahtar** = string'in SHA-256 sonuç hash'i
-- **Şifreli metin** = string SHA-256'dan geçerken her turda bir register'ın değeri
-- SHA-256 dışında hiçbir kriptografik bileşen yok
-
-### Anahtar SHA-256'nın içinde nereye girebilir?
-
-Bölüm 3'te gördüğümüz gibi, SHA-256'da her şey IV'den ileri doğru hesaplanır. Gizli bir değerin bu yapıya girebileceği tek yer **zincir değeridir**, yani IV'nin durduğu yuvadır.
-
-İşte kilit gözlem: **sonuç hash zaten bir zincir değeridir.** Mesaj devam etseydi, bir sonraki bloğun IV'si olacaktı. Dolayısıyla anahtarı tam o yuvaya koyabiliriz:
-
-```
-maske_j = compress(K, D ‖ j)        K: sonuç hash (IV yerine), D: alan etiketi, j: sayaç
-C_t     = T_t + M_t   (mod 2³²)     T: trace, M: maske kelimeleri
-```
-
-Burada `compress`, feed-forward dahil SHA-256'nın kendi sıkıştırma fonksiyonudur. Maskeyle örtme işlemi de yine SHA-256'nın kendi işlemi olan mod 2³² toplamadır.
-
-```mermaid
-flowchart LR
-  S["string s (+ isteğe bağlı tuz)"] --> R["SHA-256 turları"]
-  R -->|her turda h| T["trace T"]
-  R -->|sonuç hash| K["anahtar K"]
-  K -->|IV yuvasına| CF["compress(K, D ‖ j)"]
-  CF --> M["maske M"]
-  T --> ADD(("+ mod 2³²"))
-  M --> ADD
-  ADD --> C["şifreli metin C"]
-```
-
-**Çözme:** `K` ile maske yeniden üretilir ve `T = C − M` hesaplanır. Ortaya çıkan çıplak trace, Bölüm 2'deki decoder ile tur tur çözülür.
-
-**Doğrulama kendiliğinden gelir.** Çözülen string'in SHA-256'sı `K`'ya eşit olmak zorundadır. Ayrıca çözülen string yeniden trace'lenir ve şifreli metnin tamamıyla karşılaştırılır. Şifreli metni değiştiren biri, aynı hash'i veren başka bir string bulmak, yani bir SHA-256 çarpışması üretmek zorunda kalır.
-
-Uygulama [`sha256_mle.py`](sha256_mle.py) dosyasındadır. [`test_sha256_mle.py`](test_sha256_mle.py) şunları gösterir:
-- 8 register'ın hepsinde, tuzlu ve tuzsuz olarak gidiş-dönüş çalışır.
-- Anahtar gerçekten `SHA-256(mesaj)` değeridir (`hashlib` ile karşılaştırılarak).
-- Bölüm 3'teki anahtarsız saldırı artık **başarısız** olur.
-- Şifreli metnin **her baytında** tek bir bitin değiştirilmesi reddedilir. Yanlış anahtar da reddedilir.
-
-### Güvenlik gerekçesi
-
-Saldırgan `K`'yı bilmediği sürece maske rastgele görünür. Bunun dayandığı varsayım şudur: zincir değeri gizliyken sıkıştırma fonksiyonu sözde-rastgele bir fonksiyondur (PRF). Bu, NMAC/HMAC'in güvenlik ispatlarının da dayandığı temel varsayımdır (Bellare, 2006).
-
-Bir incelik var: düz metin (ve son trace değerleri) anahtara bağlıdır. Bu, bir "anahtara bağlı mesaj" durumudur. Bu sınıftaki şemaların titiz analizi, literatürde olduğu gibi rastgele kâhin (random oracle) modelinde yapılır.
-
-### Bu sınıfın kaçınılmaz sınırları
-
-"Anahtar = mesajın hash'i" kuralı, literatürde **convergent encryption** (Douceur ve diğ., 2002) ya da **message-locked encryption** (Bellare–Keelveedhi–Ristenpart, 2013) olarak bilinir. Kuraldan doğan sınırlar şunlardır:
-
-1. **Tahmin edilebilir mesajlar denemeyle çözülür.** "evet", bir PIN ya da bir tarih gibi mesajlarda saldırgan tahmininin SHA-256'sını anahtar olarak dener.
-   - `--tuz` seçeneği string'in sonuna 16 rastgele bayt ekler. Anahtar yine SHA-256'ya atılan o string'in sonuç hash'idir, yani kural korunur.
-   - Testte tuzsuz "evet" denemeyle çözülür, tuzlu "evet" çözülemez.
-   - Rastgele baytlar işletim sisteminden (`os.urandom`) gelir. SHA-256 deterministik olduğu için rastgeleliği kendisi üretemez.
-2. **Anahtar her mesajda değişir.** Her mesajın anahtarı alıcıya ayrıca ve gizlice iletilmelidir.
-3. **Tuzsuz şifreleme deterministiktir.** Aynı mesaj her zaman aynı şifreli metni verir, bu da iki mesajın aynı olduğunu ele verir.
-4. **Uzunluk ve boyut:** Mesaj uzunluğu 64 bayt hassasiyetinde görünür. Şifreli metin mesajın yaklaşık 4 katı büyüklüktedir (64 baytlık blok başına 64 × 4 bayt).
-
----
-
-## Kullanım
-
-Python 3 yeterlidir, ek paket gerekmez. Windows'ta `python` yerine `py` yazın.
+The implementation requires Python 3 and no external packages. On Windows, replace `python` with `py`. Program output and source comments are in Turkish.
 
 ```bash
-# 1) Tek register'dan mesajı geri kurma
-python encoder.py "Merhaba dünya" -r h -o trace.json
+# Single-register recovery
+python encoder.py "Hello, world" -r h -o trace.json
 python decoder.py trace.json
-python attack_no_key.py trace.json          # çıplak trace anahtarsız çözülür
+python attack_no_key.py trace.json
 
-# 2) Mesaja kilitli şifreleme (anahtar = SHA-256 sonuç hash)
-python sha256_mle.py enc "Gizli mesaj" -o mesaj.mle --key-out mesaj.key
-python sha256_mle.py enc "evet" --tuz -o mesaj.mle --key-out mesaj.key
-python sha256_mle.py dec mesaj.mle -k mesaj.key
+# SHACAL-2 with HMAC-SHA256
+python sha256_cipher.py keygen -o master.key
+python sha256_cipher.py enc "Secret message" -k master.key -o message.s2c
+python sha256_cipher.py dec message.s2c -k master.key
 
-# 3) SHACAL-2 (SHA-256'nın içindeki blok şifre)
-python sha256_cipher.py keygen -o anahtar.key
-python sha256_cipher.py enc "Gizli mesaj" -k anahtar.key -o mesaj.s2c
-python sha256_cipher.py dec mesaj.s2c -k anahtar.key
+# Message-locked encryption (key = digest)
+python sha256_mle.py enc "Secret message" -o message.mle --key-out message.key
+python sha256_mle.py enc "yes" --tuz -o message.mle --key-out message.key
+python sha256_mle.py dec message.mle -k message.key
 ```
 
-Testler:
+Test suite:
 
 ```bash
 python test_roundtrip.py && python test_attack.py && python test_sha256_cipher.py && python test_sha256_mle.py
 ```
 
-## Dosyalar
+The modules `hashlib` and `hmac` are used only in the test suite, to validate the implementation against the Python standard library.
 
-| Dosya | İçerik |
+## Repository contents
+
+| File | Contents |
 |---|---|
-| `sha256_core.py` | Sıfırdan SHA-256: tur fonksiyonu, ters tur, mesaj genişletme, trace kaydı |
-| `encoder.py` / `decoder.py` | Tek register trace'i üretme / trace + hash'ten mesajı kurma |
-| `attack_no_key.py` | Çıplak trace'in anahtarsız çözülebildiğinin gösterimi |
-| `sha256_cipher.py` | SHACAL-2 + CBC + HMAC-SHA256 (rastgele anahtar dosyasıyla) |
-| `sha256_mle.py` | Anahtar = sonuç hash, şifreli metin = maskelenmiş trace |
-| `test_*.py` | Her bölüm için doğrulama testleri |
+| `sha256_core.py` | SHA-256 from scratch: round function, inverse round, message schedule, trace recording |
+| `encoder.py`, `decoder.py` | Single-register trace generation and message recovery |
+| `attack_no_key.py` | Recovery of a plain trace without the digest |
+| `sha256_cipher.py` | SHACAL-2 in CBC mode with HMAC-SHA256 |
+| `sha256_mle.py` | Message-locked encryption with the digest as key |
+| `test_*.py` | Validation tests |
+| `docs/index.html` | The article, published with GitHub Pages |
 
-## Kaynaklar
+## References
 
-- NIST, *FIPS 180-4: Secure Hash Standard*, 2015.
-- H. Handschuh, D. Naccache, *SHACAL*, NESSIE başvurusu, 2000–2001.
-- R. McEvoy, M. Tunstall, C. C. Murphy, W. P. Marnane, *Differential Power Analysis of HMAC Based on SHA-2, and Countermeasures*, WISA 2007.
-- S. Belaïd, L. Bettale, E. Dottax, L. Genelle, F. Rondepierre, *Differential Power Analysis of HMAC SHA-2 in the Hamming Weight Model*, SECRYPT 2013.
-- F. Mendel, T. Nad, M. Schläffer, *Improving Local Collisions: New Attacks on Reduced SHA-256*, EUROCRYPT 2013.
-- M. Bellare, *New Proofs for NMAC and HMAC: Security without Collision-Resistance*, CRYPTO 2006.
-- J. R. Douceur, A. Adya, W. J. Bolosky, D. Simon, M. Theimer, *Reclaiming Space from Duplicate Files in a Serverless Distributed File System*, ICDCS 2002.
-- M. Bellare, S. Keelveedhi, T. Ristenpart, *Message-Locked Encryption and Secure Deduplication*, EUROCRYPT 2013.
+1. National Institute of Standards and Technology. *Secure Hash Standard (SHS)*. FIPS PUB 180-4, 2015.
+2. H. Handschuh and D. Naccache. *SHACAL*. Submission to the NESSIE project, 2000–2001.
+3. R. McEvoy, M. Tunstall, C. C. Murphy and W. P. Marnane. Differential power analysis of HMAC based on SHA-2, and countermeasures. In *WISA 2007*.
+4. S. Belaïd, L. Bettale, E. Dottax, L. Genelle and F. Rondepierre. Differential power analysis of HMAC SHA-2 in the Hamming weight model. In *SECRYPT 2013*.
+5. F. Mendel, T. Nad and M. Schläffer. Improving local collisions: new attacks on reduced SHA-256. In *EUROCRYPT 2013*.
+6. M. Bellare. New proofs for NMAC and HMAC: security without collision-resistance. In *CRYPTO 2006*.
+7. J. R. Douceur, A. Adya, W. J. Bolosky, D. Simon and M. Theimer. Reclaiming space from duplicate files in a serverless distributed file system. In *ICDCS 2002*.
+8. M. Bellare, S. Keelveedhi and T. Ristenpart. Message-locked encryption and secure deduplication. In *EUROCRYPT 2013*.
+9. H. Krawczyk, M. Bellare and R. Canetti. *HMAC: Keyed-Hashing for Message Authentication*. RFC 2104, 1997.
