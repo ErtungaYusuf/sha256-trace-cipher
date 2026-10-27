@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+
+# Gizli anahtarlar ve demo çıktıları — asla yayınlanmamalı
+*.key
+*.mle
+*.s2c
+*.bin
+trace.json
+gizli.json
